@@ -46,21 +46,24 @@
     ] }
   ];
 
-  const start = Date.parse('2026-11-16T09:00:00+08:00');
-  const weekLength = 7 * 24 * 60 * 60 * 1000;
-  const trackFromEntry = ([id, title, artist]) => ({ id, title, artist });
-
-  function weekAt(date = new Date()) {
-    const index = Math.floor((date.getTime() - start) / weekLength);
-    const week = weeks[((index % weeks.length) + weeks.length) % weeks.length];
-    return {
-      name: week.name,
-      updatedAt: new Date(start + index * weekLength).toISOString(),
-      source: 'curated',
-      tracks: week.tracks.map(trackFromEntry)
-    };
+  function shuffle(tracks) {
+    const shuffled = [...tracks];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
   }
 
-  const catalog = weeks.flatMap(week => week.tracks.map(trackFromEntry));
-  scope.WeeklyRadio = { weekAt, catalog };
+  const catalog = weeks.flatMap(week => week.tracks.map(([id, title, artist]) => ({ id, title, artist })));
+  const size = 20;
+
+  function refresh(previous = []) {
+    const previousIds = new Set(previous.map(track => track.id));
+    const fresh = shuffle(catalog.filter(track => !previousIds.has(track.id)));
+    const repeats = shuffle(catalog.filter(track => previousIds.has(track.id)));
+    return [...fresh, ...repeats].slice(0, size);
+  }
+
+  scope.WeeklyRadio = { catalog, size, refresh };
 })(globalThis);

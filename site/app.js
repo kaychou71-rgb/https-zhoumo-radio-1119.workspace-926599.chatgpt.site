@@ -4,17 +4,37 @@ const playerTitle = byId('player-title');
 const video = byId('video');
 const search = byId('search');
 const tracksList = byId('tracks');
-const dateFormat = new Intl.DateTimeFormat('zh-TW', {
-  timeZone: 'Asia/Taipei', year: 'numeric', month: 'long', day: 'numeric'
-});
-let playlist = WeeklyRadio.weekAt();
+const storageKey = 'weekly-radio-selection';
+let playlist = loadPlaylist();
 let activeTrack;
 let activeQueue = [];
-let showAll = false;
+
+function loadPlaylist() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(storageKey));
+    if (Array.isArray(ids) && ids.length === WeeklyRadio.size && new Set(ids).size === ids.length) {
+      const tracks = ids.map(id => WeeklyRadio.catalog.find(track => track.id === id));
+      if (tracks.every(Boolean)) return tracks;
+    }
+  } catch {
+    // Listening is available even when the browser disables storage.
+  }
+  const tracks = WeeklyRadio.refresh();
+  savePlaylist(tracks);
+  return tracks;
+}
+
+function savePlaylist(tracks) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(tracks.map(track => track.id)));
+  } catch {
+    // Keep the current selection in memory.
+  }
+}
 
 function renderTracks() {
   const query = search.value.trim().toLocaleLowerCase('zh-TW');
-  const queue = showAll ? WeeklyRadio.catalog : playlist.tracks;
+  const queue = playlist;
   const tracks = queue.filter(track =>
     (track.title + ' ' + track.artist).toLocaleLowerCase('zh-TW').includes(query)
   );
@@ -53,14 +73,6 @@ function renderTracks() {
   }));
 }
 
-function renderPlaylist() {
-  byId('theme').textContent = playlist.name + ' · ' + playlist.tracks.length + ' 首';
-  byId('date').textContent = showAll
-    ? WeeklyRadio.catalog.length + ' 首精選歌曲'
-    : '更新於 ' + dateFormat.format(new Date(playlist.updatedAt));
-  renderTracks();
-}
-
 function play(track, queue) {
   activeTrack = track;
   activeQueue = queue;
@@ -83,16 +95,14 @@ function step(offset) {
   play(activeQueue[(index + offset + activeQueue.length) % activeQueue.length], activeQueue);
 }
 
-function selectView(all) {
-  showAll = all;
-  byId('show-week').setAttribute('aria-pressed', String(!all));
-  byId('show-all').setAttribute('aria-pressed', String(all));
-  renderPlaylist();
-}
-
-byId('show-week').addEventListener('click', () => selectView(false));
-byId('show-all').addEventListener('click', () => selectView(true));
-byId('start').addEventListener('click', () => play(playlist.tracks[0], playlist.tracks));
+byId('refresh').addEventListener('click', () => {
+  playlist = WeeklyRadio.refresh(playlist);
+  savePlaylist(playlist);
+  search.value = '';
+  renderTracks();
+  byId('playlist-status').textContent = '已換歌，現有 ' + playlist.length + ' 首。';
+});
+byId('start').addEventListener('click', () => play(playlist[0], playlist));
 byId('previous').addEventListener('click', () => step(-1));
 byId('next').addEventListener('click', () => step(1));
 byId('close-player').addEventListener('click', () => {
@@ -104,18 +114,4 @@ byId('close-player').addEventListener('click', () => {
   (tracksList.querySelector('[data-id="' + previousId + '"]') ?? byId('start')).focus();
 });
 search.addEventListener('input', renderTracks);
-renderPlaylist();
-
-if (location.protocol === 'https:' || location.protocol === 'http:') {
-  fetch('./playlist.json', { cache: 'no-cache' })
-    .then(response => response.ok ? response.json() : null)
-    .then(data => {
-      if (activeTrack || data?.source !== 'youtube' || !data.tracks?.length
-          || !(Date.parse(data.updatedAt) >= Date.parse(playlist.updatedAt))
-          || !data.tracks.every(track => /^[\w-]{11}$/.test(track.id)
-            && typeof track.title === 'string' && typeof track.artist === 'string')) return;
-      playlist = data;
-      renderPlaylist();
-    })
-    .catch(() => {});
-}
+renderTracks();
